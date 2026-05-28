@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - testnet
     tags:
       - 'v*.*.*'
   workflow_dispatch: # Allow manual trigger
@@ -42,6 +43,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
+            type=raw,value=testnet-latest,enable=${{ github.ref == format('refs/heads/{0}', 'testnet') }}
             type=ref,event=tag
             type=sha,format=short
 
