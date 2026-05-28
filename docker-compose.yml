@@ -1,0 +1,108 @@
+version: "3.8"
+
+x-hitown-node: &hitown-node
+  image: ghcr.io/hitown/hitown-node:latest
+  restart: unless-stopped
+  # Optional: limit memory to prevent OOM
+  deploy:
+    resources:
+      limits:
+        memory: 4G
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "50m"
+      max-file: "3"
+
+services:
+  # ---------------------------------------------------------
+  # 1. Alice (Validator)
+  # ---------------------------------------------------------
+  alice:
+    <<: *hitown-node
+    container_name: hitown-alice
+    ports:
+      - "30335:30335" # P2P
+      - "9944:9944"   # RPC
+      - "9615:9615"   # Prometheus
+    volumes:
+      # Isolate data volume from runtime
+      - hitown-alice-data:/data
+      # Mount genesis spec
+      - ../customSpecRaw.json:/hitown/customSpecRaw.json:ro
+    command: >
+      --chain /hitown/customSpecRaw.json
+      --name Alice
+      --validator
+      --base-path /data
+      --port 30335
+      --rpc-port 9944
+      --prometheus-port 9615
+      --unsafe-rpc-external
+      --rpc-cors all
+      --rpc-methods Unsafe
+      --sync full
+      --frontier-backend-type sql
+      --node-key 0000000000000000000000000000000000000000000000000000000000000001
+
+  # ---------------------------------------------------------
+  # 2. Bob (Validator)
+  # ---------------------------------------------------------
+  bob:
+    <<: *hitown-node
+    container_name: hitown-bob
+    ports:
+      - "30336:30335"
+      - "9945:9944"
+      - "9616:9615"
+    volumes:
+      - hitown-bob-data:/data
+      - ../customSpecRaw.json:/hitown/customSpecRaw.json:ro
+    command: >
+      --chain /hitown/customSpecRaw.json
+      --name Bob
+      --validator
+      --base-path /data
+      --port 30335
+      --rpc-port 9944
+      --prometheus-port 9615
+      --unsafe-rpc-external
+      --rpc-cors all
+      --rpc-methods Unsafe
+      --sync full
+      --frontier-backend-type sql
+      --node-key 0000000000000000000000000000000000000000000000000000000000000002
+      --bootnodes /dns/alice/tcp/30335/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
+
+  # ---------------------------------------------------------
+  # 3. Public RPC Node (Archive)
+  # ---------------------------------------------------------
+  rpc:
+    <<: *hitown-node
+    container_name: hitown-rpc
+    ports:
+      - "30333:30335"
+      - "9933:9944"
+      - "9617:9615"
+    volumes:
+      - hitown-rpc-data:/data
+      - ../customSpecRaw.json:/hitown/customSpecRaw.json:ro
+    command: >
+      --chain /hitown/customSpecRaw.json
+      --name Hitown-Public-RPC
+      --base-path /data
+      --port 30335
+      --rpc-port 9944
+      --prometheus-port 9615
+      --unsafe-rpc-external
+      --rpc-cors all
+      --rpc-methods Safe
+      --sync full
+      --pruning archive
+      --frontier-backend-type sql
+      --bootnodes /dns/alice/tcp/30335/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
+
+volumes:
+  hitown-alice-data:
+  hitown-bob-data:
+  hitown-rpc-data:

@@ -1,0 +1,331 @@
+use std::{collections::BTreeMap, sync::Arc};
+
+use jsonrpsee::RpcModule;
+// Substrate
+use sc_client_api::{
+	backend::{Backend, StorageProvider},
+	client::BlockchainEvents,
+	AuxStore, UsageProvider,
+};
+use sc_network::service::traits::NetworkService;
+use sc_network_sync::SyncingService;
+use sc_rpc::SubscriptionTaskExecutor;
+use sc_transaction_pool_api::TransactionPool;
+use sp_api::{CallApiAt, ProvideRuntimeApi};
+use sp_block_builder::BlockBuilder as BlockBuilderApi;
+use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
+use sp_consensus_babe::BabeApi;
+use sp_core::H256;
+use sp_inherents::CreateInherentDataProviders;
+use sp_runtime::traits::Block as BlockT;
+// Frontier
+pub use fc_rpc::{EthBlockDataCacheTask, EthConfig};
+pub use fc_rpc_core::types::{FeeHistoryCache, FeeHistoryCacheLimit, FilterPool};
+use fc_storage::StorageOverride;
+use fp_rpc::{ConvertTransaction, ConvertTransactionRuntimeApi, EthereumRuntimeRPCApi};
+
+use fc_rpc::pending::ConsensusDataProvider;
+use sp_runtime::Digest;
+
+pub struct BabeConsensusDataProvider<B, C> {
+	client: Arc<C>,
+	_phantom: std::marker::PhantomData<B>,
+}
+
+impl<B, C> BabeConsensusDataProvider<B, C> {
+	pub fn new(client: Arc<C>) -> Self {
+		Self { client, _phantom: std::marker::PhantomData }
+	}
+}
+
+impl<B, C> ConsensusDataProvider<B> for BabeConsensusDataProvider<B, C>
+where
+	B: BlockT,
+	C: Send + Sync + ProvideRuntimeApi<B> + UsageProvider<B> + AuxStore,
+	C::Api: BabeApi<B>,
+{
+	fn create_digest(
+		&self,
+		_parent: &B::Header,
+		data: &sp_inherents::InherentData,
+	) -> Result<Digest, sp_inherents::Error> {
+		use sp_consensus_babe::digests::CompatibleDigestItem;
+		let timestamp = data
+			.get_data::<sp_timestamp::InherentType>(&sp_timestamp::INHERENT_IDENTIFIER)?
+			.expect("Timestamp is always present; qed");
+
+		let slot_duration = sc_consensus_babe::configuration(&*self.client).map_err(|e| sp_inherents::Error::Application(Box::new(e)))?.slot_duration();
+		let slot = sp_consensus_babe::Slot::from_timestamp(timestamp, slot_duration);
+
+		let digest_item = <sp_runtime::generic::DigestItem as CompatibleDigestItem>::babe_pre_digest(
+			sp_consensus_babe::digests::PreDigest::SecondaryPlain(sp_consensus_babe::digests::SecondaryPlainPreDigest {
+				slot,
+				authority_index: 0,
+			})
+		);
+
+		Ok(Digest {
+			logs: vec![digest_item],
+		})
+	}
+}
+
+/// Extra dependencies for Ethereum compatibility.
+pub struct EthDeps<B: BlockT, C, P, CT, CIDP> {
+	/// The client instance to use.
+	pub client: Arc<C>,
+	/// Transaction pool instance.
+	pub pool: Arc<P>,
+	/// Graph pool instance.
+	pub graph: Arc<P>,
+	/// Ethereum transaction converter.
+	pub converter: Option<CT>,
+	/// The Node authority flag
+	pub is_authority: bool,
+	/// Whether to enable dev signer
+	pub enable_dev_signer: bool,
+	/// Network service
+	pub network: Arc<dyn NetworkService>,
+	/// Chain syncing service
+	pub sync: Arc<SyncingService<B>>,
+	/// Frontier Backend.
+	pub frontier_backend: Arc<dyn fc_api::Backend<B>>,
+	/// Ethereum data access overrides.
+	pub storage_override: Arc<dyn StorageOverride<B>>,
+	/// Cache for Ethereum block data.
+	pub block_data_cache: Arc<EthBlockDataCacheTask<B>>,
+	/// EthFilterApi pool.
+	pub filter_pool: Option<FilterPool>,
+	/// Maximum number of logs in a query.
+	pub max_past_logs: u32,
+	/// Fee history cache.
+	pub fee_history_cache: FeeHistoryCache,
+	/// Maximum fee history cache size.
+	pub fee_history_cache_limit: FeeHistoryCacheLimit,
+	/// Maximum allowed gas limit will be ` block.gas_limit * execute_gas_limit_multiplier` when
+	/// using eth_call/eth_estimateGas.
+	pub execute_gas_limit_multiplier: u64,
+	/// Mandated parent hashes for a given block hash.
+	pub forced_parent_hashes: Option<BTreeMap<H256, H256>>,
+	/// Something that can create the inherent data providers for pending state
+	pub pending_create_inherent_data_providers: CIDP,
+}
+
+/// Instantiate Ethereum-compatible RPC extensions.
+pub fn create_eth<B, C, BE, P, CT, CIDP, EC>(
+	mut io: RpcModule<()>,
+	deps: EthDeps<B, C, P, CT, CIDP>,
+	subscription_task_executor: SubscriptionTaskExecutor,
+	pubsub_notification_sinks: Arc<
+		fc_mapping_sync::EthereumBlockNotificationSinks<
+			fc_mapping_sync::EthereumBlockNotification<B>,
+		>,
+	>,
+) -> Result<RpcModule<()>, Box<dyn std::error::Error + Send + Sync>>
+where
+	B: BlockT,
+	C: CallApiAt<B> + ProvideRuntimeApi<B>,
+	C::Api: BabeApi<B>
+		+ BlockBuilderApi<B>
+		+ ConvertTransactionRuntimeApi<B>
+		+ EthereumRuntimeRPCApi<B>,
+	C: HeaderBackend<B> + HeaderMetadata<B, Error = BlockChainError>,
+	C: BlockchainEvents<B> + AuxStore + UsageProvider<B> + StorageProvider<B, BE> + 'static,
+	BE: Backend<B> + 'static,
+	P: TransactionPool<Block = B, Hash = B::Hash> + 'static,
+	CT: ConvertTransaction<<B as BlockT>::Extrinsic> + Send + Sync + 'static,
+	CIDP: CreateInherentDataProviders<B, ()> + Send + 'static,
+	EC: EthConfig<B, C>,
+{
+	use fc_rpc::{
+		pending::ConsensusDataProvider, Debug, DebugApiServer, Eth, EthApiServer, EthDevSigner,
+		EthFilter, EthFilterApiServer, EthPubSub, EthPubSubApiServer, EthSigner, Net, NetApiServer,
+		Web3, Web3ApiServer,
+	};
+	#[cfg(feature = "txpool")]
+	use fc_rpc::{TxPool, TxPoolApiServer};
+
+	let EthDeps {
+		client,
+		pool,
+		graph,
+		converter,
+		is_authority,
+		enable_dev_signer,
+		network,
+		sync,
+		frontier_backend,
+		storage_override,
+		block_data_cache,
+		filter_pool,
+		max_past_logs,
+		fee_history_cache,
+		fee_history_cache_limit,
+		execute_gas_limit_multiplier,
+		forced_parent_hashes,
+		pending_create_inherent_data_providers,
+	} = deps;
+
+	let mut signers = Vec::new();
+	if enable_dev_signer {
+		signers.push(Box::new(EthDevSigner::new()) as Box<dyn EthSigner>);
+	}
+
+	io.merge(
+		Eth::<B, C, P, CT, BE, CIDP, EC>::new(
+			client.clone(),
+			pool.clone(),
+			graph.clone(),
+			converter,
+			sync.clone(),
+			signers,
+			storage_override.clone(),
+			frontier_backend.clone(),
+			is_authority,
+			block_data_cache.clone(),
+			fee_history_cache,
+			fee_history_cache_limit,
+			execute_gas_limit_multiplier,
+			forced_parent_hashes,
+			pending_create_inherent_data_providers,
+			Some(Box::new(BabeConsensusDataProvider::new(client.clone()))),
+		)
+		.replace_config::<EC>()
+		.into_rpc(),
+	)?;
+
+	if let Some(filter_pool) = filter_pool {
+		io.merge(
+			EthFilter::new(
+				client.clone(),
+				frontier_backend.clone(),
+				graph.clone(),
+				filter_pool,
+				500_usize, // max stored filters
+				max_past_logs,
+				block_data_cache.clone(),
+			)
+			.into_rpc(),
+		)?;
+	}
+
+	io.merge(
+		EthPubSub::new(
+			pool,
+			client.clone(),
+			sync,
+			subscription_task_executor,
+			storage_override.clone(),
+			pubsub_notification_sinks,
+		)
+		.into_rpc(),
+	)?;
+
+	io.merge(
+		Net::new(
+			client.clone(),
+			network,
+			// Whether to format the `peer_count` response as Hex (default) or not.
+			true,
+		)
+		.into_rpc(),
+	)?;
+
+	io.merge(Web3::new(client.clone()).into_rpc())?;
+
+	io.merge(
+		Debug::new(
+			client.clone(),
+			frontier_backend,
+			storage_override,
+			block_data_cache,
+		)
+		.into_rpc(),
+	)?;
+
+	#[cfg(feature = "txpool")]
+	io.merge(TxPool::new(client, graph).into_rpc())?;
+
+	Ok(io)
+}
+
+/// A collection of node-specific RPC methods.
+
+use solochain_template_runtime::{AccountId, Balance, Nonce};
+
+/// Full client dependencies.
+pub struct FullDeps<B: BlockT, C, P, CT, CIDP> {
+	/// The client instance to use.
+	pub client: Arc<C>,
+	/// Transaction pool instance.
+	pub pool: Arc<P>,
+	/// Manual seal command sink
+	
+	/// Ethereum-compatibility specific dependencies.
+	pub eth: EthDeps<B, C, P, CT, CIDP>,
+}
+
+pub struct DefaultEthConfig<C, BE>(std::marker::PhantomData<(C, BE)>);
+
+impl<B, C, BE> fc_rpc::EthConfig<B, C> for DefaultEthConfig<C, BE>
+where
+	B: BlockT,
+	C: StorageProvider<B, BE> + Sync + Send + 'static,
+	BE: Backend<B> + 'static,
+{
+	type EstimateGasAdapter = ();
+	type RuntimeStorageOverride =
+		fc_rpc::frontier_backend_client::SystemAccountId20StorageOverride<B, C, BE>;
+}
+
+/// Instantiate all Full RPC extensions.
+pub fn create_full<B, C, P, BE, CT, CIDP>(
+	deps: FullDeps<B, C, P, CT, CIDP>,
+	subscription_task_executor: SubscriptionTaskExecutor,
+	pubsub_notification_sinks: Arc<
+		fc_mapping_sync::EthereumBlockNotificationSinks<
+			fc_mapping_sync::EthereumBlockNotification<B>,
+		>,
+	>,
+) -> Result<RpcModule<()>, Box<dyn std::error::Error + Send + Sync>>
+where
+	B: BlockT,
+	C: CallApiAt<B> + ProvideRuntimeApi<B>,
+	C::Api: sp_block_builder::BlockBuilder<B>,
+	C::Api: BabeApi<B>,
+	C::Api: substrate_frame_rpc_system::AccountNonceApi<B, AccountId, Nonce>,
+	C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<B, Balance>,
+	C::Api: fp_rpc::ConvertTransactionRuntimeApi<B>,
+	C::Api: fp_rpc::EthereumRuntimeRPCApi<B>,
+	C: HeaderBackend<B> + HeaderMetadata<B, Error = BlockChainError> + 'static,
+	C: BlockchainEvents<B> + AuxStore + UsageProvider<B> + StorageProvider<B, BE>,
+	BE: Backend<B> + 'static,
+	P: TransactionPool<Block = B, Hash = B::Hash> + 'static,
+	CIDP: CreateInherentDataProviders<B, ()> + Send + 'static,
+	CT: fp_rpc::ConvertTransaction<<B as BlockT>::Extrinsic> + Send + Sync + 'static,
+{
+	use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
+	
+	use substrate_frame_rpc_system::{System, SystemApiServer};
+
+	let mut io = RpcModule::new(());
+	let FullDeps {
+		client,
+		pool,
+		
+		eth,
+	} = deps;
+
+	io.merge(System::new(client.clone(), pool).into_rpc())?;
+	io.merge(TransactionPayment::new(client).into_rpc())?;
+
+	// Ethereum compatibility RPCs
+	let io = create_eth::<_, _, _, _, _, _, DefaultEthConfig<C, BE>>(
+		io,
+		eth,
+		subscription_task_executor,
+		pubsub_notification_sinks,
+	)?;
+
+	Ok(io)
+}

@@ -1,0 +1,9 @@
+[package]
+name = "core2"
+version = "0.4.0"
+edition = "2021"
+
+[features]
+alloc = []
+
+[dependencies]

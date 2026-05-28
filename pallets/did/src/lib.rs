@@ -1,0 +1,133 @@
+//! # Template Pallet
+//!
+//! A pallet with minimal functionality to help developers understand the essential components of
+//! writing a FRAME pallet. It is typically used in beginner tutorials or in Substrate template
+//! nodes as a starting point for creating a new pallet and **not meant to be used in production**.
+//!
+//! ## Overview
+//!
+//! This template pallet contains basic examples of:
+//! - declaring a storage item that stores a single `u32` value
+//! - declaring and using events
+//! - declaring and using errors
+//! - a dispatchable function that allows a user to set a new value to storage and emits an event
+//!   upon success
+//! - another dispatchable function that causes a custom error to be thrown
+//!
+//! Each pallet section is annotated with an attribute using the `#[pallet::...]` procedural macro.
+//! This macro generates the necessary code for a pallet to be aggregated into a FRAME runtime.
+//!
+//! Learn more about FRAME macros [here](https://docs.substrate.io/reference/frame-macros/).
+//!
+//! ### Pallet Sections
+//!
+//! The pallet sections in this template are:
+//!
+//! - A **configuration trait** that defines the types and parameters which the pallet depends on
+//!   (denoted by the `#[pallet::config]` attribute). See: [`Config`].
+//! - A **means to store pallet-specific data** (denoted by the `#[pallet::storage]` attribute).
+//!   See: [`storage_types`].
+//! - A **declaration of the events** this pallet emits (denoted by the `#[pallet::event]`
+//!   attribute). See: [`Event`].
+//! - A **declaration of the errors** that this pallet can throw (denoted by the `#[pallet::error]`
+//!   attribute). See: [`Error`].
+//! - A **set of dispatchable functions** that define the pallet's functionality (denoted by the
+//!   `#[pallet::call]` attribute). See: [`dispatchables`].
+//!
+//! Run `cargo doc --package pallet-template --open` to view this pallet's documentation.
+
+// We make sure this pallet uses `no_std` for compiling to Wasm.
+#![cfg_attr(not(feature = "std"), no_std)]
+
+// Re-export pallet items so that they can be accessed from the crate namespace.
+pub use pallet::*;
+
+// FRAME pallets require their own "mock runtimes" to be able to run unit tests. This module
+// contains a mock runtime specific for testing this pallet's functionality.
+#[cfg(test)]
+mod mock;
+
+// This module contains the unit tests for this pallet.
+// Learn about pallet unit testing here: https://docs.substrate.io/test/unit-testing/
+#[cfg(test)]
+mod tests;
+
+// Every callable function or "dispatchable" a pallet exposes must have weight values that correctly
+// estimate a dispatchable's execution time. The benchmarking module is used to calculate weights
+// for each dispatchable and generates this pallet's weight.rs file. Learn more about benchmarking here: https://docs.substrate.io/test/benchmark/
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+pub mod weights;
+pub use weights::*;
+
+// All pallet logic is defined in its own module and must be annotated by the `pallet` attribute.
+#[frame_support::pallet]
+pub mod pallet {
+	// Import various useful types required by all FRAME pallets.
+	use super::*;
+	use frame_support::pallet_prelude::*;
+	use frame_system::pallet_prelude::*;
+
+	// The `Pallet` struct serves as a placeholder to implement traits, methods and dispatchables
+	// (`Call`s) in this pallet.
+	#[pallet::pallet]
+	pub struct Pallet<T>(_);
+
+	/// The pallet's configuration trait.
+	///
+	/// All our types and constants a pallet depends on must be declared here.
+	/// These types are defined generically and made concrete when the pallet is declared in the
+	/// `runtime/src/lib.rs` file of your chain.
+	#[pallet::config]
+	pub trait Config: frame_system::Config {
+		/// The overarching runtime event type.
+		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		/// A type representing the weights required by the dispatchables of this pallet.
+		type WeightInfo: WeightInfo;
+	}
+
+	/// A storage item for this pallet.
+	///
+	/// In this template, we are declaring a storage item called `Something` that stores a single
+	/// `u32` value. Learn more about runtime storage here: <https://docs.substrate.io/build/runtime-storage/>
+	#[pallet::storage]
+	#[pallet::getter(fn machines)]
+	pub type Machines<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, [u8; 32], OptionQuery>;
+
+	#[pallet::event]
+	#[pallet::generate_deposit(pub(super) fn deposit_event)]
+	pub enum Event<T: Config> {
+		/// Machine DID registered
+		MachineRegistered { owner: T::AccountId, metadata_hash: [u8; 32] },
+	}
+
+	#[pallet::error]
+	pub enum Error<T> {
+		/// Machine already registered
+		MachineAlreadyRegistered,
+	}
+
+	#[pallet::call]
+	impl<T: Config> Pallet<T> {
+		/// 注册机器设备的去中心化身份 (DID)
+		/// 
+		/// # 参数说明
+		/// * `origin`: 必须为签名账户（Signed），即机器的所有者
+		/// * `metadata_hash`: 包含设备硬件指纹与元数据的 32 字节 Hash 值
+		/// 
+		/// # 返回值
+		/// * `DispatchResult`: 成功返回 Ok()，若账户已绑定设备则返回 MachineAlreadyRegistered 错误
+		/// 
+		/// # 用途
+		/// 实现物理设备与链上账户的 1:1 唯一绑定，用于确权及后续的劳动力证明 (PoL) 鉴权。
+		#[pallet::call_index(0)]
+		#[pallet::weight(T::WeightInfo::do_something())]
+		pub fn register_machine(origin: OriginFor<T>, metadata_hash: [u8; 32]) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			ensure!(!Machines::<T>::contains_key(&who), Error::<T>::MachineAlreadyRegistered);
+			Machines::<T>::insert(&who, metadata_hash);
+			Self::deposit_event(Event::MachineRegistered { owner: who, metadata_hash });
+			Ok(())
+		}
+	}
+}
