@@ -1,7 +1,7 @@
 version: "3.8"
 
 x-hitown-node: &hitown-node
-  image: ghcr.io/hitown/hitown-node:latest
+  image: ghcr.io/hitownchain/hitown-node:testnet-latest
   restart: unless-stopped
   # Optional: limit memory to prevent OOM
   deploy:
