@@ -194,13 +194,27 @@ impl OnUnbalanced<NegativeImbalance> for DealWithFees {
 		}
 
 		// 2. 分配给全体验证者 (Session 兜底方案)
-		let validators = crate::SessionValidators::get();
+		let validators = pallet_session::Validators::<crate::Runtime>::get();
 		if !validators.is_empty() {
-			let reward_per_validator = validator_pool_credit.peek() / (validators.len() as u128);
+			let count = validators.len() as u32;
+			let mut remaining_credit = validator_pool_credit;
+			let mut remaining_count = count;
+
 			for validator in validators {
-				// 创建等额的 Credit 进行分配
-				let _ = <Balances as Balanced<AccountId>>::resolve(&validator, NegativeImbalance::new(reward_per_validator));
+				if remaining_count > 1 {
+					let reward = remaining_credit.peek() / (remaining_count as u128);
+					let (payout, rest) = remaining_credit.split(reward);
+					remaining_credit = rest;
+					remaining_count -= 1;
+					let _ = <Balances as Balanced<AccountId>>::resolve(&validator, payout);
+				} else {
+					let _ = <Balances as Balanced<AccountId>>::resolve(&validator, remaining_credit);
+					break;
+				}
 			}
+		} else {
+			// 如果没有验证者，丢弃（自动销毁）
+			let _ = validator_pool_credit;
 		}
 	}
 }
