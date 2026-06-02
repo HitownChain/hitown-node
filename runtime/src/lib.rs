@@ -99,11 +99,11 @@ mod block_times {
 	pub const MILLI_SECS_PER_BLOCK: u64 = 5000;
 
 	// NOTE: Currently it is not possible to change the slot duration after the chain has started.
-	// Attempting to do so will brick block production.
-	pub const SLOT_DURATION: u64 = MILLI_SECS_PER_BLOCK;
-	
-	// Epoch length 4320 slots (6 hours)
-	pub const EPOCH_DURATION_IN_SLOTS: u64 = 4320;
+        // Attempting to do so will brick block production.
+        pub const SLOT_DURATION: u64 = MILLI_SECS_PER_BLOCK;
+
+        // Epoch length 120 slots (10 minutes for fast dev/test cycle)
+        pub const EPOCH_DURATION_IN_SLOTS: u64 = 120;
 }
 pub use block_times::*;
 
