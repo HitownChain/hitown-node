@@ -389,10 +389,10 @@ pub mod pallet {
 				let nominator_count = Nominators::<T>::iter().filter(|(_, v)| v == &account).count() as u32;
 
 				// Check term limit
-				// In testnet: 3 epochs = 18h (6h per epoch)
-				// Election period: 3h in testnet (scaled from 30 days in mainnet)
+				// T_term is configured to 18 days
+				// Election period (T_election) is 3 days
 				// Note: Full implementation of term tracking would be needed here.
-				// For now we simulate the 18h limit in concept.
+				// For now we simulate the 18 days limit in concept.
 
 				// Simplified activity (e.g. 100)
 				let activity = 100;

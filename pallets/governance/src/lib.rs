@@ -94,6 +94,8 @@ pub mod pallet {
 		/// The amount of currency to reserve for a proposal.
 		#[pallet::constant]
 		type ProposalBond: Get<BalanceOf<Self>>;
+		/// Origin that can veto proposals.
+		type VetoOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
 	/// A struct representing a proposal's state.
@@ -231,6 +233,37 @@ pub mod pallet {
 			Votes::<T>::insert(proposal_index, &who, (approve, weight));
 
 			Self::deposit_event(Event::Voted { proposal_index, voter: who, approve, weight });
+			Ok(())
+		}
+
+		/// 一票否决提案
+		///
+		/// # 参数说明
+		/// * `origin`: 必须为有否决权的特定账户（如 Sudo）
+		/// * `proposal_index`: 目标提案的全局唯一 ID
+		///
+		/// # 返回值
+		/// * `DispatchResult`: 成功返回 Ok()，否则返回对应错误
+		#[pallet::call_index(2)]
+		#[pallet::weight(T::WeightInfo::do_something())]
+		pub fn veto_proposal(origin: OriginFor<T>, proposal_index: u32) -> DispatchResult {
+			T::VetoOrigin::ensure_origin(origin)?;
+
+			let mut proposal = Proposals::<T>::get(proposal_index).ok_or(Error::<T>::ProposalNotFound)?;
+			ensure!(proposal.status == ProposalStatus::Active, Error::<T>::ProposalNotActive);
+
+			proposal.status = ProposalStatus::Rejected;
+			Proposals::<T>::insert(proposal_index, &proposal);
+
+			// Unreserve the proposer's bond
+			T::Currency::unreserve(&proposal.proposer, T::ProposalBond::get());
+
+			// Unreserve all voters' weights
+			for (voter, (_, vote_weight)) in Votes::<T>::iter_prefix(proposal_index) {
+				T::Currency::unreserve(&voter, vote_weight);
+			}
+
+			Self::deposit_event(Event::Resolved { proposal_index, passed: false });
 			Ok(())
 		}
 	}

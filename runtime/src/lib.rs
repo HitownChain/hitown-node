@@ -102,8 +102,8 @@ mod block_times {
         // Attempting to do so will brick block production.
         pub const SLOT_DURATION: u64 = MILLI_SECS_PER_BLOCK;
 
-        // Epoch length 120 slots (10 minutes for fast dev/test cycle)
-        pub const EPOCH_DURATION_IN_SLOTS: u64 = 120;
+        // 18 days in slots: 18 * 24 * 60 * 60 / 5 = 311040
+        pub const EPOCH_DURATION_IN_SLOTS: u64 = 311040;
 }
 pub use block_times::*;
 
@@ -111,6 +111,10 @@ pub use block_times::*;
 pub const MINUTES: BlockNumber = 60_000 / (MILLI_SECS_PER_BLOCK as BlockNumber);
 pub const HOURS: BlockNumber = MINUTES * 60;
 pub const DAYS: BlockNumber = HOURS * 24;
+
+// 测试网选举与换届周期配置
+pub const T_TERM: BlockNumber = 18 * DAYS;
+pub const T_ELECTION: BlockNumber = 3 * DAYS;
 
 pub const BLOCK_HASH_COUNT: BlockNumber = 2400;
 
@@ -331,10 +335,11 @@ frame_support::parameter_types! {
 }
 
 impl pallet_governance::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type WeightInfo = pallet_governance::weights::SubstrateWeight<Runtime>;
-	type Currency = Balances;
-	type ProposalBond = ProposalBondAmount;
+        type RuntimeEvent = RuntimeEvent;
+        type WeightInfo = pallet_governance::weights::SubstrateWeight<Runtime>; 
+        type Currency = Balances;
+        type ProposalBond = ProposalBondAmount;
+        type VetoOrigin = frame_system::EnsureRoot<AccountId>;
 }
 
 impl pallet_wasm_bridge::Config for Runtime {
