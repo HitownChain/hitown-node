@@ -13,7 +13,7 @@ FROM ubuntu:22.04
 # Install necessary certificates and curl
 RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /hitown/target/release/solochain-template-node /usr/local/bin/hitown-node
+COPY --from=builder /hitown/target/release/hitownchain-testnet-node /usr/local/bin/hitown-node
 
 # Create hitown user and isolate data volumes
 RUN useradd -m -u 1000 -U -s /bin/sh -d /hitown hitown && \
