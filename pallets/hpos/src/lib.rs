@@ -387,7 +387,7 @@ pub mod pallet {
 			for (account, stake) in Bonded::<T>::iter() {
 				// Count nominators for this account
 				let nominator_count = Nominators::<T>::iter().filter(|(_, v)| v == &account).count() as u32;
-				
+
 				// Check term limit
 				// In testnet: 3 epochs = 18h (6h per epoch)
 				// Election period: 3h in testnet (scaled from 30 days in mainnet)
@@ -396,17 +396,29 @@ pub mod pallet {
 
 				// Simplified activity (e.g. 100)
 				let activity = 100;
-				
+
 				// Assuming Balance can be converted to u128 for scoring
 				// In production, you would safely convert Balance to u128
 				let total_stake: u128 = stake.try_into().unwrap_or(0);
-				
+
 				candidates_data.push(crate::election::CandidateData {
 					account,
 					total_stake,
 					nominator_count,
 					activity,
 				});
+			}
+
+			// Add GenesisValidators to candidates to prevent chain halt if new bonded users have no session keys.
+			for genesis_val in GenesisValidators::<T>::get().into_inner() {
+				if !Bonded::<T>::contains_key(&genesis_val) {
+					candidates_data.push(crate::election::CandidateData {
+						account: genesis_val,
+						total_stake: 0, // Fallback stake
+						nominator_count: 0,
+						activity: 100,
+					});
+				}
 			}
 			
 			let max_validators = T::MaxGenesisValidators::get() as usize;
