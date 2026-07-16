@@ -287,8 +287,10 @@ mod runtime {
 impl pallet_hpos::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_hpos::weights::SubstrateWeight<Runtime>;
-	type MaxGenesisValidators = ConstU32<33>;
+	type MaxGenesisValidators = ConstU32<100>;
 	type Currency = Balances;
+	type MinValidatorBond = ConstU128<{ 1024 * UNIT }>;
+	type MinNominatorBond = ConstU128<{ 32 * UNIT }>;
 }
 
 impl pallet_hmp::Config for Runtime {
@@ -338,8 +340,11 @@ impl pallet_governance::Config for Runtime {
         type RuntimeEvent = RuntimeEvent;
         type WeightInfo = pallet_governance::weights::SubstrateWeight<Runtime>; 
         type Currency = Balances;
-        type ProposalBond = ProposalBondAmount;
-        type VetoOrigin = frame_system::EnsureRoot<AccountId>;
+	type ProposalBond = ProposalBondAmount;
+	type VetoOrigin = frame_system::EnsureRoot<AccountId>;
+	type MajorProposalDelay = ConstU32<{ 7 * DAYS }>;
+	type MinEndorsements = ConstU32<3>;
+	type EndorseOrigin = frame_system::EnsureSigned<AccountId>; // 暂时允许任意签名账户背书，实际业务中可改为验证者 Origin
 }
 
 impl pallet_wasm_bridge::Config for Runtime {
