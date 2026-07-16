@@ -98,6 +98,12 @@ pub mod pallet {
 		type MaxGenesisValidators: Get<u32>;
 		/// The currency trait.
 		type Currency: ReservableCurrency<Self::AccountId>;
+		/// The minimum bond required for a rotating validator.
+		#[pallet::constant]
+		type MinValidatorBond: Get<BalanceOf<Self>>;
+		/// The minimum bond required for an ordinary node (nominator).
+		#[pallet::constant]
+		type MinNominatorBond: Get<BalanceOf<Self>>;
 	}
 
 	#[pallet::storage]
@@ -197,6 +203,10 @@ pub mod pallet {
 		NoUnbondingFunds,
 		/// Funds are still locked.
 		FundsStillLocked,
+		/// Bond amount is below the required minimum for nominators.
+		BelowMinNominatorBond,
+		/// Bond amount is below the required minimum for validators.
+		BelowMinValidatorBond,
 	}
 
 	/// The pallet's dispatchable functions ([`Call`]s).
@@ -280,11 +290,17 @@ pub mod pallet {
 		pub fn bond(origin: OriginFor<T>, amount: BalanceOf<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			
+			let current_bond = Bonded::<T>::get(&who);
+			let new_total_bond = current_bond.saturating_add(amount);
+
+			// To simplify, we enforce the nominator minimum bond for all bonders initially.
+			// The election logic should further check MinValidatorBond (1024) if they want to be a validator.
+			ensure!(new_total_bond >= T::MinNominatorBond::get(), Error::<T>::BelowMinNominatorBond);
+
 			// Ensure user has enough balance and reserve it
 			T::Currency::reserve(&who, amount).map_err(|_| Error::<T>::InsufficientBalance)?;
 
-			let current_bond = Bonded::<T>::get(&who);
-			Bonded::<T>::insert(&who, current_bond.saturating_add(amount));
+			Bonded::<T>::insert(&who, new_total_bond);
 			Self::deposit_event(Event::Bonded { account: who, amount });
 			Ok(())
 		}

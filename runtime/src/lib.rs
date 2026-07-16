@@ -12,7 +12,7 @@ pub mod precompiles;
 
 extern crate alloc;
 use alloc::vec::Vec;
-use frame_support::pallet_prelude::ConstU32;
+use frame_support::pallet_prelude::{ConstU32, ConstU128};
 use sp_runtime::{
 	generic, impl_opaque_keys,
 	traits::{BlakeTwo256, IdentifyAccount, Verify},
@@ -39,7 +39,6 @@ use sp_core::{H160, H256, U256, OpaqueMetadata};
 use fp_rpc::TransactionStatus;
 use pallet_ethereum::{PostLogContent, Transaction as EthereumTransaction};
 use codec::{Encode, Decode};
-use fp_evm::Account as EVMAccount;
 use core::marker::PhantomData;
 use sp_runtime::traits::{Block as BlockT, DispatchInfoOf, Dispatchable, PostDispatchInfoOf};
 use sp_runtime::transaction_validity::{TransactionValidity, TransactionValidityError};
