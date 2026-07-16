@@ -3,7 +3,6 @@ version: "3.8"
 x-hitown-node: &hitown-node
   image: ghcr.io/hitownchain/hitown-node:testnet-latest
   restart: unless-stopped
-  # Optional: limit memory to prevent OOM
   deploy:
     resources:
       limits:
@@ -15,24 +14,19 @@ x-hitown-node: &hitown-node
       max-file: "3"
 
 services:
-  # ---------------------------------------------------------
-  # 1. Alice (Validator)
-  # ---------------------------------------------------------
-  alice:
+  node1:
     <<: *hitown-node
-    container_name: hitown-alice
+    container_name: hitown-node1
     ports:
       - "30335:30335" # P2P
       - "9944:9944"   # RPC
       - "9615:9615"   # Prometheus
     volumes:
-      # Isolate data volume from runtime
-      - hitown-alice-data:/data
-      # Mount genesis spec
+      - hitown-node1-data:/data
       - ../customSpecRaw.json:/hitown/customSpecRaw.json:ro
     command: >
       --chain /hitown/customSpecRaw.json
-      --name Alice
+      --name Node1
       --validator
       --base-path /data
       --port 30335
@@ -45,22 +39,19 @@ services:
       --frontier-backend-type sql
       --node-key 0000000000000000000000000000000000000000000000000000000000000001
 
-  # ---------------------------------------------------------
-  # 2. Bob (Validator)
-  # ---------------------------------------------------------
-  bob:
+  node2:
     <<: *hitown-node
-    container_name: hitown-bob
+    container_name: hitown-node2
     ports:
       - "30336:30335"
       - "9945:9944"
       - "9616:9615"
     volumes:
-      - hitown-bob-data:/data
+      - hitown-node2-data:/data
       - ../customSpecRaw.json:/hitown/customSpecRaw.json:ro
     command: >
       --chain /hitown/customSpecRaw.json
-      --name Bob
+      --name Node2
       --validator
       --base-path /data
       --port 30335
@@ -72,37 +63,62 @@ services:
       --sync full
       --frontier-backend-type sql
       --node-key 0000000000000000000000000000000000000000000000000000000000000002
-      --bootnodes /dns/alice/tcp/30335/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
+      --bootnodes /dns/node1/tcp/30335/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
 
-  # ---------------------------------------------------------
-  # 3. Public RPC Node (Archive)
-  # ---------------------------------------------------------
-  rpc:
+  node4:
     <<: *hitown-node
-    container_name: hitown-rpc
+    container_name: hitown-node4
     ports:
-      - "30333:30335"
-      - "9933:9944"
-      - "9617:9615"
+      - "30337:30335"
+      - "9946:9944"
+      - "9618:9615"
     volumes:
-      - hitown-rpc-data:/data
+      - hitown-node4-data:/data
       - ../customSpecRaw.json:/hitown/customSpecRaw.json:ro
     command: >
       --chain /hitown/customSpecRaw.json
-      --name Hitown-Public-RPC
+      --name Node4
+      --validator
       --base-path /data
       --port 30335
       --rpc-port 9944
       --prometheus-port 9615
       --unsafe-rpc-external
       --rpc-cors all
-      --rpc-methods Safe
+      --rpc-methods Unsafe
       --sync full
-      --pruning archive
       --frontier-backend-type sql
-      --bootnodes /dns/alice/tcp/30335/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
+      --node-key 0000000000000000000000000000000000000000000000000000000000000004
+      --bootnodes /dns/node1/tcp/30335/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
+
+  node5:
+    <<: *hitown-node
+    container_name: hitown-node5
+    ports:
+      - "30338:30335"
+      - "9947:9944"
+      - "9619:9615"
+    volumes:
+      - hitown-node5-data:/data
+      - ../customSpecRaw.json:/hitown/customSpecRaw.json:ro
+    command: >
+      --chain /hitown/customSpecRaw.json
+      --name Node5
+      --validator
+      --base-path /data
+      --port 30335
+      --rpc-port 9944
+      --prometheus-port 9615
+      --unsafe-rpc-external
+      --rpc-cors all
+      --rpc-methods Unsafe
+      --sync full
+      --frontier-backend-type sql
+      --node-key 0000000000000000000000000000000000000000000000000000000000000005
+      --bootnodes /dns/node1/tcp/30335/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
 
 volumes:
-  hitown-alice-data:
-  hitown-bob-data:
-  hitown-rpc-data:
+  hitown-node1-data:
+  hitown-node2-data:
+  hitown-node4-data:
+  hitown-node5-data:

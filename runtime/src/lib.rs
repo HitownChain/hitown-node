@@ -12,7 +12,7 @@ pub mod precompiles;
 
 extern crate alloc;
 use alloc::vec::Vec;
-use frame_support::pallet_prelude::{ConstU32, ConstU128};
+use frame_support::pallet_prelude::ConstU32;
 use sp_runtime::{
 	generic, impl_opaque_keys,
 	traits::{BlakeTwo256, IdentifyAccount, Verify},
@@ -283,13 +283,18 @@ mod runtime {
 		pub type Authorship = pallet_authorship;
 	}
 
+frame_support::parameter_types! {
+	pub const MinValidatorBond: u128 = 1024 * UNIT;
+	pub const MinNominatorBond: u128 = 32 * UNIT;
+}
+
 impl pallet_hpos::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_hpos::weights::SubstrateWeight<Runtime>;
 	type MaxGenesisValidators = ConstU32<100>;
 	type Currency = Balances;
-	type MinValidatorBond = ConstU128<{ 1024 * UNIT }>;
-	type MinNominatorBond = ConstU128<{ 32 * UNIT }>;
+	type MinValidatorBond = MinValidatorBond;
+	type MinNominatorBond = MinNominatorBond;
 }
 
 impl pallet_hmp::Config for Runtime {
